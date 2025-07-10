@@ -37,6 +37,7 @@ This repository contains coursework projects completed as part of my MSc in Busi
 
 
 Note
+
 This repository contains coursework projects completed during my MSc in Business Analytics at Warwick Business School. The code and methodologies are intended to showcase my skills for job applications and should not be considered open-source or production-ready. Feel free to explore the projects as examples of my work and analytical capabilities.
 
 Do not replicate or reuse these projects for commercial purposes or as part of any course or professional work unless explicitly permitted.
