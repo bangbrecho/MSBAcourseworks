@@ -1,0 +1,489 @@
+---
+title: 'Business Statistics Mid-Term Assessment IB94X0 2024-2025 #1'
+author: 'Basil Pradipta'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+---
+
+---
+
+This is to certify that the work I am submitting is my own. All external references and sources are clearly acknowledged and identified within the contents. I am aware of the University of Warwick regulation concerning plagiarism and collusion. 
+
+No substantial part(s) of the work  submitted  here has also been submitted by  me  in other assessments for accredited courses of study, and I acknowledge that if this has been done an appropriate reduction in the mark I might otherwise have received will be made.
+
+AI was used in the preparation of this work. It was used in the development of the code: It was used to provide example uses of functions or approaches to elements of the challenges which were then interpreted by me and modified to be applicable to this data/report.
+
+---
+
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(kableExtra)
+options(width=100)
+library(emmeans)
+library(gridExtra)
+library(rstatix)
+```
+
+# Section 1 
+
+## Data dictionary
+
+Variable | Description
+-------- | -----------
+Date | The date of the recording
+SiteName | The name of the site recorded
+LocationName | The name of the location recorded
+Weekday | The day of which the recording is done
+TotalCount | The total footfall recorded
+RecordingID | The identity of recording
+
+
+## Data reading and quality checking
+
+```{r}
+#read the footfall dataset
+footfall_raw<-read_csv("York_Footfall_data.csv")
+
+```
+
+### Missing value handling
+```{r, message=FALSE}
+#check for missing values per column
+colSums(is.na(footfall_raw))
+```
+
+Some recording IDs have NA values, and the recording ID does not provide value for statistical measures. Duplicate data can be validated by checking the date and location name. Therefore, the recording ID column can be removed.
+
+```{r}
+#removing column Recording ID and putting the new data into footfall_data
+footfall_raw<-select(footfall_raw, -Recording_ID) 
+#Plot the data to further understand the data
+ggplot(data=footfall_raw)+
+  geom_line(aes(x=Date, y= TotalCount))+
+  facet_grid(LocationName~.)+
+  ylab("Footfall")+
+  labs(title = "Footfall per day", caption= "Figure 1.1. The raw footfall data across six location from 2015 until 2020")
+
+```
+
+
+From the graph, there are several takeaways:
+
+1. Church Street data collection is stopped somewhere between 2016 and 2018
+
+2. There are two location that includes the word Parliament Street, one of them stops collecting data before 2016, while the other began around when the former stops. This data also needs further evaluation
+
+3. There are abnormal data that needs to be further evaluation
+
+4. There might be seasonality and daily behaviour that needs further evaluation 
+ 
+### Evaluation of Parliament Street
+```{r, message=FALSE}
+#parliament st data evaluation
+parliamentst<-footfall_raw %>% #temporary data holding data about 'Parliament Street at M&S' and 'Parliament Street'
+  filter(LocationName %in% c("Parliament Street at M&S","Parliament Street")) 
+parliament_check <- parliamentst %>%
+  group_by(LocationName) %>%
+  summarise(
+    first_date = min(Date), #checking the first date of data collected for both LocationName 
+    last_date = max(Date), #checking the last date of data collected for both LocationName
+    n = n()
+  )
+parliament_check%>% kable(format="pipe")
+```
+
+From the table, the footfall data for 'Parliament Street at M&S' stops exactly one day before 'Parliament Street' starts. Ideally, this data should be consulted with the data provider to ask whether both of the location name represents the same location. In this assignment, I assume both represents the same location.
+
+```{r, message=FALSE}
+#Combining data for LocationName 'Parliament Street at M&S' with 'Parliament Street' as 'Parliament Street'
+footfall <- footfall_raw %>%
+  mutate(
+    LocationName = ifelse(LocationName %in% c("Parliament Street at M&S", "Parliament Street"),"Parliament Street", LocationName)
+  )
+```
+
+### Handling abnormal data
+
+To account for seasonal effect, such as the lower footfall on December 25th and the typically higher footfall at the end of the year, one of the more suitable method to remove the abnormal data is to remove the data that clearly deviates the typical data.
+
+```{r, message=FALSE}
+ggplot(data=footfall, aes(x = TotalCount, fill = LocationName))+
+  geom_histogram(position = "identity", alpha=0.5, binwidth = 2500)+
+  facet_grid(LocationName~.)+
+  labs(x= "Footfall", title="Footfall histogram per location", caption = "Figure 1.2. Footfall histogram across all location from 2015 until 2020")+
+  theme(legend.position="none")
+```
+```{r, message=FALSE}
+#plotting each location to explore the data in more detail
+ggplot(data=filter(footfall, footfall$LocationName=="Church Street"), aes(x = TotalCount))+ 
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Church Street", caption = "Figure 1.2.a. Footfall histogram in Church Street from 2015 until 2020")
+
+ggplot(data=filter(footfall, footfall$LocationName=="Coney Street"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Coney Street", caption = "Figure 1.2.b. Footfall histogram in Coney Street from 2015 until 2020")
+
+ggplot(data=filter(footfall, footfall$LocationName=="Micklegate"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Micklegate", caption = "Figure 1.2.c. Footfall histogram in Micklegate from 2015 until 2020")
+
+ggplot(data=filter(footfall, footfall$LocationName=="Parliament Street"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Parliament Street", caption = "Figure 1.2.d. Footfall histogram in Parliament Street from 2015 until 2020")
+
+ggplot(data=filter(footfall, footfall$LocationName=="Stonegate"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Stonegate", caption = "Figure 1.2.e. Footfall histogram in Stonegate from 2015 until 2020")
+
+```
+
+
+Figure 1.1 and Figure 1.2 shows that there are abnormally high values that can potentially be outliers and can mislead in further analysis. For this case, I will be using 15000 as a cutoff value for Church Street, 70000 for Coney Street, 58000 for Micklegate, 70000 for Parliament Street, and 70000 for Stonegate
+
+```{r, message=FALSE, warning=FALSE}
+#Changing the abnormal data into NA value
+footfall_clean<-footfall%>%
+  mutate(TotalCount = ifelse (LocationName == "Church Street" & (TotalCount>15000 | TotalCount < 0), NA, 
+                      ifelse (LocationName == "Coney Street" & (TotalCount>70000 | TotalCount < 0), NA, 
+                      ifelse (LocationName == "Micklegate" & (TotalCount>58000 | TotalCount < 0), NA,
+                      ifelse (LocationName == "Parliament Street" & (TotalCount>70000 | TotalCount < 0), NA,
+                      ifelse (LocationName == "Stonegate" & (TotalCount>75000 | TotalCount < 0), NA, TotalCount
+                              ))))))
+
+#plotting the line graph for cleaned data
+ggplot(data=footfall_clean)+
+  geom_line(aes(x=Date, y= TotalCount))+
+  facet_grid(LocationName~.)+
+  ylab("Footfall")+
+  labs(title = "Footfall per day", caption = "Figure 1.3. The footfall data across all location from 2015 until 2020")
+
+#plotting the histogram for each location
+ggplot(data=filter(footfall_clean, footfall_clean$LocationName=="Church Street"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 500)+
+  labs(x= "Footfall", title="Footfall histogram in Church Street", caption = "Figure 1.4.a. Footfall histogram in Church Street from 2015 until 2020")
+
+ggplot(data=filter(footfall_clean, footfall_clean$LocationName=="Coney Street"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Coney Street", caption = "Figure 1.4.b. Footfall histogram in Coney Street from 2015 until 2020")
+
+ggplot(data=filter(footfall_clean, footfall_clean$LocationName=="Micklegate"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Micklegate", caption = "Figure 1.4.c. Footfall histogram in Micklegate from 2015 until 2020")
+
+ggplot(data=filter(footfall_clean, footfall_clean$LocationName=="Parliament Street"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Parliament Street", caption = "Figure 1.4.d. Footfall histogram in Parliament Street from 2015 until 2020")
+
+ggplot(data=filter(footfall_clean, footfall_clean$LocationName=="Stonegate"), aes(x = TotalCount))+
+  geom_histogram(binwidth = 1000)+
+  labs(x= "Footfall", title="Footfall histogram in Stonegate", caption = "Figure 1.4.e. Footfall histogram in Stonegate from 2015 until 2020")
+```
+
+## Summary Table
+### Before data cleaning
+```{r, message=FALSE}
+footfall_summary <- footfall_raw %>%
+  group_by(LocationName) %>%
+  summarise(
+    First_Day = min(Date, na.rm = TRUE), #Date of the first day when footfall was measured in each location
+    Last_Day = max(Date, na.rm = TRUE), #Date of the last day when footfall was measured in each location
+    Mean_Footfall = mean(TotalCount, na.rm = TRUE), #The mean daily footfall
+    SD_Footfall = sd(TotalCount, na.rm = TRUE), #the standard deviation of daily footfall
+    Max_Footfall = max(TotalCount, na.rm = TRUE), #Highest daily footfall for each location
+    Min_Footfall = min(TotalCount, na.rm = TRUE) #Lowest daily footfall for each location
+  )
+footfall_summary%>% kable(format="pipe")
+
+```
+
+Before cleaning the data, the summary statistics show the raw footfall data for each location. Several key takeaways from the summary are:
+
+  1. There are two location that has similar location name 'Parliament Street' and 'Parliament Street at M&S'
+  
+  2. Some values are significantly distant from the mean, indicating extreme values that may result in a high standard deviation.
+
+*Assumptions made: 
+
+  1. Parliament Street and Parliament Street at M&S are the same
+
+### After data cleaning
+```{r, message=FALSE}
+footfall_clean_summary <- footfall_clean %>%
+  group_by(LocationName) %>%
+  summarise(
+    First_Day = min(Date, na.rm = TRUE), #Date of the first day when footfall was measured in each location
+    Last_Day = max(Date, na.rm = TRUE), #Date of the last day when footfall was measured in each location
+    Mean_Footfall = mean(TotalCount, na.rm = TRUE), #The mean daily footfall
+    SD_Footfall = sd(TotalCount, na.rm = TRUE), #the standard deviation of daily footfall
+    Max_Footfall = max(TotalCount, na.rm = TRUE), #Highest daily footfall for each location
+    Min_Footfall = min(TotalCount, na.rm = TRUE) #Lowest daily footfall for each location
+  )
+footfall_clean_summary%>% kable(format="pipe")
+```
+After cleaning the data, the mean footfall data has likely adjusted to better reflect typical days, maximum values has changed, and standard deviation has also reduced.
+
+
+## Statistical testing for optimal stall placement
+
+Further statistical testing only uses data from the year 2019 as the last full year before COVID.
+
+### Plotting the distribution of Footfall across all locations
+
+```{r, message=FALSE}
+footfall_clean <- footfall_clean %>%
+  mutate(Year = format(Date, "%Y")) #taking the year from Date column
+footfall2019 <- footfall_clean %>%
+  filter(Year >= 2019) %>% #filtering only for year from 2019
+  select(-Year) #removing Year column as it is no longer used
+
+#Plotting data after selecting data only from year 2019
+ggplot(data=footfall2019, aes(y=TotalCount))+
+  geom_histogram(bins= 100)+
+  facet_grid(.~LocationName)+
+  labs (y="Footfall", title = "Footfall histogram per location", caption="Figure 1.5. Footfall histogram per location from 2019")
+
+footfall2019_summary <- footfall2019 %>%
+  group_by(LocationName) %>%
+  summarise(
+    Average_Footfall = mean(TotalCount, na.rm = TRUE),
+    Maximum_Footfall = max(TotalCount, na.rm = TRUE),
+    Mininum_Footfall = min(TotalCount, na.rm = TRUE)
+  )
+
+footfall2019_summary %>% kable(format="pipe")
+```
+
+Micklegate has the lowest number of footfall, while Coney, Parliament Street, and Stonegate has similiar number of footfall. Statistical t-testing is conducted to compare the locations.
+
+### t-test comparing Coney Street and Stonegate
+
+```{r, message=FALSE, warning=FALSE}
+coney.vs.stonegate <- footfall2019 %>%
+  filter(LocationName %in% c("Coney Street", "Stonegate")) #creating data with only Coney street and Stonegate
+
+ggplot(coney.vs.stonegate, aes(x=TotalCount, fill= LocationName))+
+  geom_histogram(aes(y=after_stat(density)), bins = 100, position = "identity", alpha = 0.5)+
+  scale_fill_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+  stat_function(
+    fun = function(x) dnorm(x, mean = mean(coney.vs.stonegate$TotalCount[coney.vs.stonegate$LocationName == "Coney Street"]),sd = sd(coney.vs.stonegate$TotalCount[coney.vs.stonegate$LocationName == "Coney Street"])), color = "blue")+ #adding the normal distribution plot that has the mean value and standard deviation of Coney Street 
+  stat_function(fun = function(x) dnorm(x, mean = mean(coney.vs.stonegate$TotalCount[coney.vs.stonegate$LocationName == "Stonegate"]),sd = sd(coney.vs.stonegate$TotalCount[coney.vs.stonegate$LocationName == "Stonegate"])),color = "red")+ #adding the normal distribution plot of Stonegate plot that has the mean value and standard deviation of Stonegate
+  labs(x = "Footfall", title = "Coney Street vs Stonegate", caption="Figure 1.6. Footfall histogram density of Coney Street (Blue) and Stonegate (Red)")
+
+#From the graph, both locations are positively skewed
+#Normality of the data and comments about statistical methodology will be explored on the appendix
+```
+```{r, message=FALSE}
+t.test(TotalCount~LocationName, coney.vs.stonegate)
+
+m.coney.vs.stonegate <- lm(TotalCount~LocationName, data = coney.vs.stonegate) #creating linear model to get size estimates
+m.coney.vs.stonegate.emm <- emmeans(m.coney.vs.stonegate, ~LocationName) #getting the confidence interval for each location
+m.coney.vs.stonegate.contrast <- confint (pairs(m.coney.vs.stonegate.emm)) #getting the contrast from both location
+```
+```{r, message=FALSE}
+grid.arrange(
+  ggplot(summary(m.coney.vs.stonegate.emm),aes(x=LocationName, y=emmean, ymin=lower.CL, ymax=upper.CL, col=LocationName)) + #plotting the confidence interval and estimated mean for each location
+    geom_point()+
+    geom_linerange()+
+    scale_color_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+    theme(legend.position = "none")+
+    labs(y="Footfall", x="Location", title="Footfall", subtitle = "Error bars are 95% CIs",caption="Figure 1.7.a CI of footfall in Coney Street-Stonegate"),
+  ggplot(m.coney.vs.stonegate.contrast, aes(x=contrast, y=estimate, ymin=lower.CL, ymax=upper.CL))+ #plotting the confidence interval and estimated mean for the contrast of both location
+    geom_point()+
+    geom_linerange()+
+    labs(y="Difference in Footfall", x = "Coney Street-Stonegate", title = "Difference in Footfall", subtitle= "Error bars are 95% CIs",caption="Figure 1.7.b CI of Difference in footfall in Coney Street-Stonegate")+
+    geom_hline(yintercept=0, lty=2)
+)
+```
+
+
+Based on the t-test, there is a statistical difference ($t(699) = 3.3611$, $p<0.001$) between Footfall in Coney Street and Stonegate, where the estimated true mean footfall in Coney Street is higher by 20,817.45 to 19,204.09. Additionally, Figure 1.7 further visualises the 95% confidence interval of the mean difference between the location are between 670.92 and 2,555.80 passerby, supporting the t-test result.  
+
+### t-test comparing Coney Street and Stonegate during the weekends
+
+```{r, message=FALSE, warning=FALSE}
+coney.vs.stonegate.weekend <- coney.vs.stonegate %>%
+  filter(WeekDay %in% c("Saturday", "Sunday"))
+
+ggplot(coney.vs.stonegate.weekend, aes(x=TotalCount, fill= LocationName))+
+  geom_histogram(aes(y=after_stat(density)), bins = 100, position = "identity", alpha = 0.5)+
+  scale_fill_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+  stat_function(
+    fun = function(x) dnorm(x, mean = mean(coney.vs.stonegate.weekend$TotalCount[coney.vs.stonegate.weekend$LocationName == "Coney Street"]),sd = sd(coney.vs.stonegate.weekend$TotalCount[coney.vs.stonegate.weekend$LocationName == "Coney Street"])), color = "blue")+ #adding the normal distribution plot that has the mean value and standard deviation of Coney Street 
+  stat_function(fun = function(x) dnorm(x, mean = mean(coney.vs.stonegate.weekend$TotalCount[coney.vs.stonegate.weekend$LocationName == "Stonegate"]),sd = sd(coney.vs.stonegate.weekend$TotalCount[coney.vs.stonegate.weekend$LocationName == "Stonegate"])),color = "red")+ #adding the normal distribution plot of Stonegate
+  labs(x = "Footfall", title = "Coney Street vs Stonegate in the weekend", caption="Figure 1.8. Footfall histogram density of Coney Street (Blue) and Stonegate (Red) in the weekend" )
+```
+
+
+```{r, message=FALSE}
+t.test(TotalCount~LocationName, coney.vs.stonegate.weekend)
+
+#creating a linear model to generate the estimated mean and confidence interval for the weekends.
+m.coney.vs.stonegate.weekend <- lm(TotalCount~LocationName, data = coney.vs.stonegate.weekend)
+m.coney.vs.stonegate.emm.weekend <- emmeans(m.coney.vs.stonegate.weekend, ~LocationName)
+m.coney.vs.stonegate.contrast.weekend <- confint (pairs(m.coney.vs.stonegate.emm.weekend))
+```
+```{r, message=FALSE, warning=FALSE}
+grid.arrange(
+  ggplot(summary(m.coney.vs.stonegate.emm.weekend),aes(x=LocationName, y=emmean, ymin=lower.CL, ymax=upper.CL, col=LocationName)) + #plotting the confidence interval and estimated mean for each location
+    geom_point()+
+    geom_linerange()+
+    scale_color_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+    theme(legend.position = "none")+
+    labs(y="Footfall", x="Location", title="Footfall", subtitle = "Error bars are 95% CIs",caption="Figure 1.9.a CI of weekend footfall in Coney-Stonegate"),
+  ggplot(m.coney.vs.stonegate.contrast.weekend, aes(x=contrast, y=estimate, ymin=lower.CL, ymax=upper.CL))+ #plotting the confidence interval and estimated mean for the contrast of both location
+    geom_point()+
+    geom_linerange()+
+    labs(y="Difference in Footfall", x = "Contrast", title = "Difference in Footfall", subtitle= "Error bars are 95% CIs",caption="Figure 1.9.b CI of Difference in weekend footfall in Coney-Stonegate")+
+    geom_hline(yintercept=0, lty=2)
+)
+```
+
+
+Based on the t-test, on the weekends, there is no statistical significant difference ($t(203) = -0.29$, $p=0.772$) in mean of footfall between Coney Street and Stonegate with the 95% confidence interval in the mean difference of the locations are between -2,362.60 and 1,744.41 as shown in Figure 1.9. 
+
+## Stall placement advice
+### If the placement is on every day of the week
+Based on the t-test results, ($t(699) = 3.3611$, $p<0.001$), there is significant statistical difference in the mean of footfall between Coney Street and Stonegate with the true mean footfall in Coney Street is higher by 20,817.45 to 19,204.09. Given this result, the more ideal location based on the footfall is Coney Street.  
+
+### If the placement is on the weekends
+Based on the t-test results, ($t(203) = -0.29$, $p=0.772$), there is no statistical difference in the mean of footfall between Coney Street and Stonegate on the weekends. Given this result, either location could work and decision should come down to other factors other than footfall.  
+
+---   
+
+# Section 2
+## Background
+This report provides an analysis of data collected at Church Street, Coney Street, Micklegate, Parliament Street, and Stonegate in York from year 2015 until 2020. The analysis aims to provide understanding in footfall trends and data driven recommendation regarding optimal stall placement. Stall placement recommendation will use data from year 2019 as the last year before COVID.
+
+## Data Analysis
+
+```{r, echo = FALSE}
+ggplot(data=footfall2019, aes(y=TotalCount, fill= LocationName))+
+  geom_histogram(bins= 100)+
+  scale_fill_manual(values= c("Coney Street" = "blue", "Micklegate" = "purple",  "Stonegate" = "red", "Parliament Street" = "orange"))+
+  facet_grid(.~LocationName)+
+  labs (y="Footfall", title = "Footfall histogram per location", caption="Figure 2.1. Footfall histogram of Coney (blue), Micklegate (purple), Parliament Street (orange), and Stonegate (red) from 2019")+
+  theme(legend.position = "none")
+```
+```{r,echo=FALSE}
+footfall2019_summary %>% kable(format="pipe")
+```
+
+
+Figure 2.1 shows the distribution of footfall data on Coney, Micklegate, Parliament Street, and Stonegate and the table shows the average, maximum, and minimum footfall for each location. 
+
+From Figure 2.1, we observe that Micklegate has the lowest number of footfall, while Coney, Parliament Street, and Stonegate has similiar number of footfall. Statistical t-testing is conducted to further analyse whether the difference between the data is statistically significant or not.
+
+
+### Statistical evaluation of Coney Street and Stonegate
+```{r, echo = FALSE}
+ggplot(coney.vs.stonegate, aes(x=TotalCount, fill= LocationName))+
+  geom_histogram( bins = 100, position = "identity", alpha = 0.5)+
+  scale_fill_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+  labs(x = "Footfall", title = "Coney Street vs Stonegate", caption="Figure 2.2. Footfall histogram of Coney Street (Blue) and Stonegate (Red)")
+```
+```{r, echo = FALSE}
+t.test(TotalCount~LocationName, coney.vs.stonegate)
+```
+```{r, echo = FALSE}
+grid.arrange(
+  ggplot(summary(m.coney.vs.stonegate.emm),aes(x=LocationName, y=emmean, ymin=lower.CL, ymax=upper.CL, col=LocationName)) +
+    geom_point()+
+    geom_linerange()+
+    scale_color_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+    theme(legend.position = "none")+
+    labs(y="Footfall", x="Location", title="Footfall", subtitle = "Error bars are 95% CIs",caption="Figure 2.3.a CI of footfall in Coney Street and Stonegate"),
+  ggplot(m.coney.vs.stonegate.contrast, aes(x=contrast, y=estimate, ymin=lower.CL, ymax=upper.CL))+
+    geom_point()+
+    geom_linerange()+
+    labs(y="Difference in Footfall", x = "Coney Street-Stonegate", title = "Difference in Footfall", subtitle= "Error bars are 95% CIs",caption="Figure 2.3.b CI of Difference in footfall in Coney Street and Stonegate")+
+    geom_hline(yintercept=0, lty=2)
+)
+```
+
+T-test was used to evaluate whether there is a difference in average daily footfall on Coney Street and Stonegate in 2019. The result shows a significant difference, where Coney Street has higher footfall with an estimate daily average footfall of 20,817 on Coney Street compared to 19,204 on Stonegate. Figure 2.3.a further shows the 95% confidence interval of footfall on both locations and Figure 2.3.b shows the confidence interval of the difference between both locations of between 671 and 2,556 footfall per day. However, this is not the case for the weekends. 
+
+```{r, echo = FALSE}
+ggplot(coney.vs.stonegate.weekend, aes(x=TotalCount, fill= LocationName))+
+  geom_histogram( bins = 100, position = "identity", alpha = 0.5)+
+  scale_fill_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+  labs(x = "Footfall", title = "Coney Street vs Stonegate in the weekend", caption="Figure 2.4. Footfall histogram of Coney Street (Blue) and Stonegate (Red) in the weekend" )
+```
+
+```{r, echo = FALSE}
+t.test(TotalCount~LocationName, coney.vs.stonegate.weekend)
+grid.arrange(
+  ggplot(summary(m.coney.vs.stonegate.emm.weekend),aes(x=LocationName, y=emmean, ymin=lower.CL, ymax=upper.CL, col=LocationName)) +
+    geom_point()+
+    geom_linerange()+
+    scale_color_manual(values= c("Coney Street" = "blue", "Stonegate" = "red"))+
+    theme(legend.position = "none")+
+    labs(y="Footfall", x="Location", title="Footfall", subtitle = "Error bars are 95% CIs",caption="Figure 2.5.a CI of weekend footfall in Coney and Stonegate"),
+  ggplot(m.coney.vs.stonegate.contrast.weekend, aes(x=contrast, y=estimate, ymin=lower.CL, ymax=upper.CL))+
+    geom_point()+
+    geom_linerange()+
+    labs(y="Difference in Footfall", x = "Contrast", title = "Difference in Footfall", subtitle= "Error bars are 95% CIs",caption="Figure 2.5.b CI of Difference in weekend footfall in Coney and Stonegate")+
+    geom_hline(yintercept=0, lty=2)
+)
+```
+
+The weekend only result indicates no significant difference in the daily footfall between Coney Street and Stonegate. Supported with the 95% confidence interval includes the difference of zero, as shown in Figure 2.5.b. 
+
+## Conclusion and Recommendation
+Based on this analysis, to maximise the number of passerby, we recommend if the operation is run daily all-year round, placing the stall on Coney Street is likely to get more passerby than on Stonegate. However, if the operation is only on the weekends, there is no significant difference, therefore stall placement can be either on Coney Street or Stonegate.
+
+--- 
+
+# Appendix and comments
+
+## Data normality exploration
+Normality can be tested by Shapiro-Wilk test. Shapiro and Wilk (1965) states, "The test is obtained by dividing the square of an appropriate linear combination of the sample order statistics by the usual symmetric estimate variance". The test is done to check the p value with the hypothesis that the distribution is normal.
+```{r}
+#Evaluating the normality of Coney and Stonegate data using shapiro test
+coney.vs.stonegate%>%
+  group_by(LocationName)%>%
+  shapiro_test(TotalCount)
+```
+The result shows that we can reject the hypothesis that the footfall data of both of the locations are normally distributed, with p < 0.005 for Coney Street and p < 0.005 for Stonegate.
+
+To further analyse the normality, Q-Q plot can be tested. Quantile plots can be used to assess the distribution of data (Wilk and Gnanadesikan, 1968).
+```{r}
+#Plotting the Q-Q plot
+ggplot(data=coney.vs.stonegate, aes(sample = TotalCount, col= LocationName))+
+  stat_qq()+
+  stat_qq_line()+
+  labs(x="Theoritical Quantiles", y = "Sample Quantiles", title= "Q-Q plot of footfall data", caption = "Table A.21 the Q-Q plot of footfall from Coney Street and Stonegate" )
+```
+
+The Q-Q plot also shows that there are difference in the quantile of the sample and theoritical quantile, further supporting that the data has skewness. The weekend data is also further evaluated.
+```{r}
+#Evaluating the normality by using shapiro test
+coney.vs.stonegate.weekend%>%
+  group_by(LocationName)%>%
+  shapiro_test(TotalCount)
+```
+
+The weekend data result shows that we can also reject the hypothesis that the footfall data of both of the locations are normally distributed. With p < 0.005 for Coney Street and p < 0.005 for Stonegate.
+
+```{r}
+#plotting the Q-Q plot
+ggplot(data=coney.vs.stonegate.weekend, aes(sample = TotalCount, col= LocationName))+
+  stat_qq()+
+  stat_qq_line()+
+  labs(x="Theoritical Quantiles", y = "Sample Quantiles", title= "Q-Q plot of weekend data", caption = "Table A.2 the Q-Q plot of weekend data from Coney Street and Stonegate" )
+```
+
+The Q-Q plot from the weekend data also supports that there are skewness on the data.
+
+Since the data is statistically not normally distributed, using t-test, which is a test that assumes normality, could lead to errors and misleading conclusion. The data is likely skewed because of the effect of seasonality on footfall. However, removing the seasonality of the data can lead to misinterpretation. Tests that do not assume normality might complement the t-testing and may be better suited for not data that is not normally distributed.
+
+## References
+Wilk, M.B. and Gnanadesikan, R. (1968) Probability plotting methods for the analysis of data. Great Britain, Biometrika
+
+Shapiro, S. S and Wilk, M.B. (1965) An analysis of variance test for normality (complete samples). Great Britain, Biometrika 
+
+
+
