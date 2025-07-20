@@ -11,6 +11,7 @@ This repository contains coursework projects completed as part of my MSc in Busi
      - Random Forest (RF)
      - XGBoost
    - Performance evaluation of each model was performed based on various metrics.
+   - Groupwork
 
 ### 2. **LSTM (Long Short-Term Memory)**
    - Developed an LSTM model for time series forecasting and sequential data analysis.
@@ -19,6 +20,7 @@ This repository contains coursework projects completed as part of my MSc in Busi
 ### 3. **Price Optimisation**
    - Implemented optimization algorithms to suggest optimal pricing strategies.
    - Used mathematical models to simulate price elasticity and maximize revenue under certain business constraints.
+   - Groupwork
 
 ### 4. **R Statistical Testing**
    - Conducted hypothesis testing and statistical analysis using R.
@@ -34,6 +36,9 @@ This repository contains coursework projects completed as part of my MSc in Busi
 ### 7. **RAG (Retrieval Augmented Generation)**
    - Developed a RAG system for medical application.
 
+### 8. **A/B Testing**
+   - Developed an A/B testing statistical calculation.
+   - Groupwork.
 
 
 Note
