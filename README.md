@@ -40,6 +40,9 @@ This repository contains coursework projects completed as part of my MSc in Busi
    - Developed an A/B testing statistical calculation.
    - Groupwork.
 
+### 9. **SVM**
+   - Developed an SVM algorithm using linear and nonlinear optimisation.
+   - Groupwork.
 
 Note
 
