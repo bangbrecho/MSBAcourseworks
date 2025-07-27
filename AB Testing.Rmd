@@ -1,0 +1,210 @@
+---
+title: 'IB98D0 Analysis Code by Group 36'
+output: html_document
+date: "2025-02-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(knitr)
+library(tidyr)
+```
+
+## Step 1. Data Preparation
+```{r loar_data}
+# Load Data
+df <- read.csv("ADAproject_2025_data.csv",
+               header = T,
+               stringsAsFactors = FALSE)
+
+# Set categorical variable
+df$Variant <- factor(df$Variant)
+```
+
+### Data Cleaning 
+```{r data_cleaning}
+
+# When complt_init, complt_fin and fully_complt are not equal, it indicates that some loans were not reviewed by both the loan officer and the AI.
+# These loans do not meet our experimental criteria and should be filtered out.
+df_1 <- df %>%
+  filter(complt_init == complt_fin, complt_fin == fully_complt, fully_complt == badloans_num + goodloans_num)
+
+# Aggregate the data to the user-level
+df_2 <- df_1 %>%
+  group_by(Variant, loanofficer_id) %>%
+  summarise(
+    typeI_init = sum(typeI_init, na.rm = TRUE),
+    typeI_fin = sum(typeI_fin, na.rm = TRUE),
+    typeII_init = sum(typeII_init, na.rm = TRUE),
+    typeII_fin = sum(typeII_fin, na.rm = TRUE),
+    badloans_num = sum(badloans_num, na.rm = TRUE),
+    mean_confidence_init = mean(confidence_init_total, na.rm = TRUE),
+    mean_confidence_fin = mean(confidence_fin_total, na.rm = TRUE),
+    .groups = "drop")
+# Compute the recall and precision before and after using the model. Then calculate the difference between recall, precision and confidence score.
+df_2 <- df_2 %>%
+  mutate(recall_init = (badloans_num - typeII_init) / badloans_num, 
+         precision_init = (badloans_num - typeII_init) / (badloans_num - typeII_init + typeI_init), 
+         recall_fin = (badloans_num - typeII_fin) / badloans_num, 
+         precision_fin = (badloans_num - typeII_fin) / (badloans_num - typeII_fin + typeI_fin),
+         recall_improvement = recall_fin - recall_init,
+         precision_improvement = precision_fin - precision_init,
+         confidence_improvement = (mean_confidence_fin - mean_confidence_init) / 1000 )
+```
+
+## Step 2. Data Analysis: Hypothesis Testing
+
+OEC (Overall Evaluation Criteria) = w1 * recall_per_officer + w2 * precision_per_officer + w3 * confidence_improvement
+
+w1, w2, and w3 are weights. Considering the objectives of the loan company, we prioritize reducing the erroneous acceptance of bad loans (FN) over reducing the missed approvals of good loans (FP). This is because a bad loan can result in the long-term loss of the entire principal, whereas missing a good loan only reduces the potential profit from interest. Therefore, a higher weight (0.5) is assigned to recall. As for the confidence score, it is less critical to the company’s revenue objectives, so we assign it a lower weight (0.1).
+
+*Hypothesis*: Implementing the new model will improve the quality of loan decision-making. (single-tailed t-test)
+
+*Another way*: There's a difference in loan decision-making quality between the Control (existing model) and the Treatment (new model) variants. (two-tailed t-test)
+
+```{r data_select} 
+# Select the columns to test dataset
+test_data <- df_2 %>%
+  select(Variant, loanofficer_id, recall_improvement, precision_improvement, confidence_improvement)
+```
+
+
+```{r test}
+
+# OEC = w1*recall_per_officer + w2*precision_per_officer + w3*confidence_improvement
+w1 <- 0.5
+w2 <- 0.4
+w3 <- 0.1
+test_data <- test_data %>%
+  mutate(OEC = w1 * recall_improvement + w2 * precision_improvement + w3 * confidence_improvement)
+
+t_result1 <- t.test(OEC ~ Variant, 
+       data = test_data, 
+       var.equal = FALSE)
+t_result2 <- t.test(recall_improvement ~ Variant, 
+       data = test_data, 
+       var.equal = FALSE)
+t_result3 <- t.test(precision_improvement ~ Variant, 
+       data = test_data, 
+       var.equal = FALSE)
+t_result4 <- t.test(confidence_improvement ~ Variant,
+       data = test_data, 
+       var.equal = FALSE)
+
+print(t_result1)
+print(t_result2)
+print(t_result3)
+print(t_result4)
+```
+The treatment (new computer model) significantly *increased* (p = 0.0003917 < 0.001) OEC compared to Control (existing model).
+The treatment  significantly *increased* (p = 0.01097 < 0.05) recall_improvement compared to Control.
+The treatment  significantly *increased* (p = 0.0001407 < 0.001) precision_improvement compared to Control.
+The treatment  showed *no statistically significant difference* (p = 0.3626) in confidence improvement compared to the control .
+
+```{r adjust}
+
+#
+p.values <- c(t_result1$p.value, t_result2$p.value, t_result3$p.value, t_result4$p.value)
+
+p.adjusted.bh <- p.adjust(p.values, method = "BH")
+
+print(p.adjusted.bh)
+
+
+```
+
+After adjusting p-values for multiple comparisons using the Bonferroni-Holm method, the results remained consistent.
+
+##Step 3. Data Analysis: Compute Difference in Mean OEC (Actual Value & %) between Variants
+
+```{r compare}
+#
+# Compute mean OEC for each Variant
+mean_values_each_Variant <- test_data %>%
+  group_by(Variant) %>%
+  summarise(
+    mean_OEC = mean(OEC),
+    mean_recall = mean(recall_improvement),
+    mean_precision = mean(precision_improvement),
+    mean_confidence = mean(confidence_improvement)
+  )
+
+# View mean OEC and the relative values.
+print(mean_values_each_Variant)
+
+# Compute pairwise % differences in OEC and relative values between the Control and Treatment
+pairwise_diff <- mean_values_each_Variant %>%
+  summarise(
+    Diff_OEC_Treatment_Control = mean_OEC[Variant == "Treatment"] - mean_OEC[Variant == "Control"],
+    Perc_OEC_Treatment_Control = (Diff_OEC_Treatment_Control / mean_OEC[Variant == "Control"]) * 100,
+    Diff_Recall_Treatment_Control = mean_recall[Variant == "Treatment"] - mean_recall[Variant == "Control"],
+    Perc_Recall_Treatment_Control = (Diff_Recall_Treatment_Control / mean_recall[Variant == "Control"]) * 100,
+    Diff_Precision_Treatment_Control = mean_precision[Variant == "Treatment"] - mean_precision[Variant == "Control"],
+    Perc_Precision_Treatment_Control = (Diff_Precision_Treatment_Control / abs(mean_precision[Variant == "Control"])) * 100,
+    Diff_Confidence_Treatment_Control = mean_confidence[Variant == "Treatment"] - mean_confidence[Variant == "Control"],
+    Perc_Confidence_Treatment_Control = (Diff_Confidence_Treatment_Control / mean_confidence[Variant == "Control"]) * 100
+  )
+
+# View pairwise differences
+print(pairwise_diff)
+pairwise_diff_t <- pairwise_diff %>%
+  pivot_longer(cols = everything(), names_to = "Differenece", values_to = "Value") %>%
+  kable(digits = 4)
+
+print(pairwise_diff_t)
+
+```
+
+Treatment (new model) significantly *increased* (p < 0.001) OEC compared to Control by 932.8%.
+Treatment significantly *increased* (p < 0.05) recall compared to Control by 690.4%.
+Treatment significantly *increased* (p < 0.001) precision compared to Control by 1010.8%.
+However, the difference in confidence compared to Control was *not statistically significant* (p = 0.3626), with only a 51.9% increase.
+
+The improvements in OEC, recall, and precision suggest a *practically significant* boost, while the confidence results indicate no meaningful change compared to the existing model.
+
+
+## Step 4. Data Analysis: Compute & Interpret Effect Size (Cohen's d)
+```{r effectsize}
+library(effectsize)
+
+# Effect size of OEC
+cohen_d_OEC <- cohens_d(test_data$OEC[test_data$Variant == "Treatment"], 
+                        test_data$OEC[test_data$Variant == "Control"])
+
+# Effect size of recall_improvement
+cohen_d_Recall <- cohens_d(test_data$recall_improvement[test_data$Variant == "Treatment"], 
+                           test_data$recall_improvement[test_data$Variant == "Control"])
+
+# Effect size of precision_improvement
+cohen_d_Precision <- cohens_d(test_data$precision_improvement[test_data$Variant == "Treatment"], 
+                              test_data$precision_improvement[test_data$Variant == "Control"])
+
+# Effect size of confidence_improvement
+cohen_d_Confidence <- cohens_d(test_data$confidence_improvement[test_data$Variant == "Treatment"], 
+                               test_data$confidence_improvement[test_data$Variant == "Control"])
+
+print(cohen_d_OEC)
+print(cohen_d_Recall)
+print(cohen_d_Precision)
+print(cohen_d_Confidence)
+
+```
+
+Treatment (new model) significantly *increased* (p < 0.001, d = 1.06) OEC compared to Control by 932.8%.
+Treatment significantly *increased* (p < 0.001, d = 0.67) recall compared to Control by 690.4%.
+Treatment significantly *increased* (p < 0.001, d = 1.04) precision compared to Control by 1010.8%.
+The difference in confidence compared to Control was *not statistically significant* (p = 0.3626, d = 0.26), with only a 51.9% increase.
+
+The improvements in OEC, recall, and precision demonstrate both *statistical and practical significance*, considering the p-value, Cohen's d effect size, and the percentage change. However, the observed difference in confidence does not exhibit statistical significance.
+
+
+
+
+## Recommendations About the Data :Compute Required Sample Size for Desired Power Level & Effect Size
+
+To ensure the feasibility of the experiment, when we assume an effect size of 1.06(from our OEC effect size) for the sample difference, the required sample size is approximately 15 samples per group.
+
+```{r datasize}
+library(pwr)
+pwr.t.test(d = 1.06, power = 0.8, sig.level = 0.05, type = "two.sample")
