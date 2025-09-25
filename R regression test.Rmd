@@ -1,0 +1,511 @@
+---
+title: 'Business Statistics End of Term Assessment IB94X0 2024-2025 #1'
+author: '5642990'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(emmeans) # for emmeans() and pairs()
+library(Hmisc)
+options(width=100)
+library(kableExtra)
+library(gridExtra)
+library(car)
+```
+---
+
+This is to certify that the work I am submitting is my own. All external references and sources are clearly acknowledged and identified within the contents. I am aware of the University of Warwick regulation concerning plagiarism and collusion. 
+
+No substantial part(s) of the work  submitted  here has also been submitted by  me  in other assessments for accredited courses of study, and I acknowledge that if this has been done an appropriate reduction in the mark I might otherwise have received will be made.
+
+AI was used in the preparation of this work. It was used in the development of the code: It was used to provide example uses of functions or approaches to elements of the challenges which were then interpreted by me and modified to be applicable to this data/report.
+
+---
+
+# Question 1 
+
+## Introduction
+
+Section 1 will evaluate how the population percentage of poverty, overweight, smokers, and wellbeing score in an area will effect the prevalence of cardiovascular disease (CVD). The effect of percentage of poverty in population upon CVD will also be illustrated. Firstly the data is loaded and explored, then it is modelled. Findings suggest that higher percentages of overweight individuals, smokers, and wellbeing scores are associated with an increased occurrence of CVD. However, higher poverty rates appear to be linked to a lower prevalence of CVD, with the relationship between overweight and poverty showing a statistically significant interaction.
+
+```{r}
+cvd <- read_csv("Cardio_Vascular_Disease.csv") #loading the data
+```
+## Data dictionary
+
+Variable | Description
+-------- | -----------
+area_name | The name of the area
+area_code | The code of the area
+Population | The number of population living in the area
+Poverty | The proportion of population living in poverty 
+CVD | The percentage of people living in the area who have recently experienced Cardiovascular Disease (CVD)
+overweight | The proportion of population who are overweight
+smokers | The proportion of population who smoke
+wellbeing | The average wellbeing score on the area
+
+## Data Exploration and Preparation
+
+Data is explored and prepared by checking duplicate values, Null values, and possible outliers that might bias the result.
+
+### Duplicate value evaluation 
+```{r}
+(area_duplicate <-cvd%>%
+  filter(duplicated(cvd$area_name)))
+(code_duplicate <-cvd%>%
+  filter(duplicated(cvd$area_code)))
+```
+Checking duplicate values on the area name and area code shows that there is no duplicated values on both area names and area code.
+
+### Null value evaluation
+```{r}
+colSums(is.na(cvd))
+NAs <- cvd %>%
+  filter(rowSums(is.na(cvd))>0)
+```
+
+There are Null values in the dataset, ideally this should be consulted with the provider of the data. In this case, I will use linear modelling which by default will remove entire rows of the dataset that contains Null value.
+
+### Distribution of data evaluation
+
+```{r}
+ggplot(data = cvd, aes(x=Population))+
+  geom_histogram(bins=50)+
+  labs(x= "Number of population", title="Population histogram", caption = "Figure 1.1.a. Population histogram")
+ggplot(data = cvd, aes(x=Poverty))+
+  geom_histogram(bins=50)+
+  labs(x= "Percentage of poverty", title="Poverty histogram", caption = "Figure 1.1.b. Poverty histogram")
+ggplot(data = cvd, aes(x=CVD))+
+  geom_histogram(bins=50)+
+  labs(x= "Percentage of CVD", title="CVD histogram", caption = "Figure 1.1.c. CVD histogram")
+ggplot(data = cvd, aes(x=overweight))+
+  geom_histogram(bins=50)+
+  labs(x= "Percentage of overweight", title="Overweight histogram", caption = "Figure 1.1.d. Overweight histogram")
+ggplot(data = cvd, aes(x=smokers))+
+  geom_histogram(bins=50)+
+  labs(x= "Percentage of smokers", title="Smokers histogram", caption = "Figure 1.1.e. Smokers histogram")
+ggplot(data = cvd, aes(x=wellbeing))+
+  geom_histogram(bins=50) +
+  labs(x= "Wellbeing score", title="Wellbeing histogram", caption = "Figure 1.1.f. Wellbeing histogram")
+```
+
+From Figure 1.1a, population histogram is positively skewed and there are population outliers with values more than 600,000. However, other predictors are a scaled values, with poverty, CVD, overweight, and smokers  are expressed percentages, while wellbeing is expressed scores between 0 to 10. Figure 1.1 additionally indicates that the predictor are approximately normally distributed. While population is not included as a predictor in the regression, its extreme values might indirectly influence other predictors, affecting the regression outcome.
+
+```{r}
+high_population <- cvd %>%
+  filter(Population > 600000)
+```
+
+```{r}
+ggplot(cvd, aes(x = Poverty, y = CVD)) +
+  geom_point(aes(color = Population)) +
+  labs(title = "CVD vs Poverty", x = "Poverty (%)", y = "CVD (%)", caption = "Figure 1.2.a Population on CVD vs Population")+
+  scale_color_gradient(low = "blue", high = "orange")
+
+ggplot(cvd, aes(x = overweight, y = CVD)) +
+  geom_point(aes(color = Population)) +
+  labs(title = "CVD vs Overweight", x = "overweight", y = "CVD (%)", caption = "Figure 1.2.b Population on CVD vs overweight")+
+  scale_color_gradient(low = "blue", high = "orange")
+
+ggplot(cvd, aes(x = smokers, y = CVD)) +
+  geom_point(aes(color = Population)) +
+  labs(title = "CVD vs Smokers", x = "Smokers (%)", y = "CVD", caption = "Figure 1.2.c Population on CVD vs Overweight")+
+  scale_color_gradient(low = "blue", high = "orange")
+
+ggplot(cvd, aes(x = wellbeing, y = CVD)) +
+  geom_point(aes(color = Population)) +
+  labs(title = "CVD vs Wellbeing", x = "Wellbeing score", y = "CVD", caption = "Figure 1.2.d Population on CVD vs Wellbeing")+
+  scale_color_gradient(low = "blue", high = "orange")
+
+```
+
+Figure 1.2 shows that the values with high population is scattered around with no particular concentrated area. This indicates that the abnormally high population does not affect other predictors. With the data being a scaled data and the distribution is approximately normal, no data is removed.
+
+## Linear Modelling
+
+To identify how the percentage of poverty, overweight, smokers, and wellbeing score effects the prevalence of CVD in the area, linear modelling is performed.
+
+### Without interaction
+```{r}
+m.cvd.all <- lm(CVD~ Poverty + overweight +smokers+wellbeing, data = cvd) 
+summary(m.cvd.all)
+```
+
+Without interactions, CVD can be predicted with the model, CVD predict = -1.698 - 0.184 poverty + 0.110 overweight + 0.120 smokers + 1.800 wellbeing.
+
+Interpretation of the coefficients:
+
+  1.Poverty: For each one percentage point increase in poverty, the CVD rate decreases by 0.184 percentage points, which is significantly different from zero (t(298) = -5.234, p < 0.001).
+
+  2.Overweight: For each one percentage point increase in the proportion of overweight individuals, the CVD rate increases by 0.110 percentage points, which is significantly different from zero (t(298) = 5.174, p < 0.001).
+
+  3.Smokers: For each one percentage point increase in the proportion of smokers, the CVD rate increases by 0.120 percentage points, which is significantly different from zero (t(298) = 3.574, p < 0.001).
+
+  4.Wellbeing: For each one point increase in the wellbeing score, the CVD rate increases by 1.800 percentage points, which is significantly different from zero (t(298) = 3.667, p < 0.001).
+  
+All predictors (poverty, overweight, smokers, and wellbeing) are significantly affecting CVD. The negative relationship between CVD and poverty suggest that area with higher poverty have lower CVD rates, while the positive relationship between CVD and overweight, smokers, and wellbeing suggest areas with higher percentage of those predictor have higher CVD rates.
+
+
+#### Multicollinearity Evaluation
+To check the accuracy and stability of the model, the multicollinearity of the variables are evaluated with Variance Inflation Factor (VIF).
+```{r}
+vif(m.cvd.all)
+```
+The low VIF result indicates low multicollinearity between the predictor variables. This means the variable does not share redundant information.
+
+### Interaction Evaluation 
+To further evaluate the impact of each predictors to the prevalence of CVD, the interactions between the predictors and CVD is analysed.
+
+```{r}
+m.cvd.pov.ow.int.all <- lm(CVD~ Poverty * overweight + smokers + wellbeing, data = cvd)
+summary(m.cvd.pov.ow.int.all)
+```
+```{r}
+m.cvd.pov.wb.int <- lm(CVD~ Poverty * wellbeing + overweight + smokers, data = cvd)
+summary(m.cvd.pov.wb.int)
+```
+```{r}
+m.cvd.pov.smok.int <- lm(CVD~ Poverty * smokers + overweight + wellbeing, data = cvd)
+summary(m.cvd.pov.smok.int)
+```
+```{r}
+m.cvd.smok.ow.int <- lm(CVD~ smokers * overweight + Poverty + wellbeing, data = cvd)
+summary(m.cvd.smok.ow.int)
+```
+
+```{r}
+m.cvd.well.ow.int <- lm(CVD~ wellbeing * overweight + Poverty + smokers, data = cvd)
+summary(m.cvd.well.ow.int)
+```
+
+```{r}
+m.cvd.well.smok.int <- lm(CVD~ wellbeing * smokers + Poverty + overweight, data = cvd)
+summary(m.cvd.well.smok.int)
+```
+
+Evaluating the possible model outcomes with interactions between the predictors using R-squared, the model that includies the interaction between poverty and overweight provides the best performance. To statistically compare between the model without overweight interaction with poverty and with interaction, ANOVA analysis is performed. 
+
+```{r}
+anova(m.cvd.all, m.cvd.pov.ow.int.all)
+```
+The ANOVA results shows that the model with interaction provides a significantly better fit than the model without interaction (p(297)= 7.0127, Pr <0.05). Therefore, the interaction between poverty and overweight is an important factor in CVD modelling. 
+
+
+From the model, CVD can be predicted as CVD predict = 6.044 - 0.534 poverty - 0.186 overweight + 0.111 smokers + 1.722 wellbeing + 0.015 poverty x overweight.
+
+Interpretation of the coefficients:
+
+  1.Poverty: For each one percentage point increase in poverty, the CVD rate decreases by 0.534 percentage points, which is significantly different from zero (t(297) = -3.909, p < 0.001).
+
+  2.Overweight: For each one percentage point increase in the proportion of overweight individuals, the CVD rate decreases by 0.186 percentage points, which is not significantly different from zero (t(297) = -1.635, p = 0.103).
+
+  3.Smokers: For each one percentage point increase in the proportion of smokers, the CVD rate increases by 0.111 percentage points, which is significantly different from zero (t(297) = 3.302, p < 0.01).
+
+  4.Wellbeing: For each one point increase in the wellbeing score, the CVD rate increases by 1.722 percentage points, which is significantly different from zero (t(297) = 3.536, p < 0.01).
+
+  5.Poverty x overweight: For each one point increase in the poverty:overweight score, the CVD rate increases by 0.015 percentage points, which is significantly different from zero (t(297) = 2.648, p < 0.01).  
+
+Predictors  such as poverty, smokers, wellbeing, and the interaction between poverty and overweight are significantly affecting CVD. The negative relationship between CVD and poverty suggest that area with higher poverty have lower CVD rates, while the positive relationship between CVD and smokers, and wellbeing suggest areas with higher percentage of those predictor have higher CVD rates. The interaction between poverty and overweight also has a positive relationship to CVD.
+
+```{r}
+cvdpred <- na.omit(cvd) #removing Na values in cvd dataset to prepare it for the model
+  
+cvdpred$cvdhat <- predict(m.cvd.pov.ow.int.all, cvdpred) #using the cvd as input for the model 
+
+ggplot(cvdpred, aes(x = Poverty)) +
+  geom_point(aes(y = CVD), alpha = 0.6, color = "grey") +
+  geom_line(aes(y = cvdhat), color = "blue") +  
+  labs(
+    title = "Predicted and Actual CVD",
+    x = "Poverty (%)",
+    y = "CVD Prevalence (%)",
+    caption = "Figure 1.3. Predicted percentage of CVD on %Poverty (blue) and Actual percentage of CVD on %Poverty (grey)"
+  )
+```
+```{r}
+# creating a tibble of mean values for prediction
+predict2 <- tibble(
+  Poverty = seq(min(cvdpred$Poverty), max(cvdpred$Poverty), length.out = 100),
+  overweight = mean(cvdpred$overweight, na.rm = TRUE),
+  smokers = mean(cvdpred$smokers, na.rm = TRUE),
+  wellbeing = mean(cvdpred$wellbeing, na.rm = TRUE)
+)
+
+predict2$cvdhat2 <- predict(m.cvd.pov.ow.int.all, predict2)
+
+mean_table <- cvdpred %>%
+  summarise(
+    overweight = mean(overweight, na.rm = TRUE),
+    smokers = mean(smokers, na.rm = TRUE),
+    wellbeing = mean(wellbeing, na.rm = TRUE)
+  )
+mean_table%>% kable(format="pipe")
+```
+
+To isolate the effect of poverty on CVD, the value of overweight, smokers, and wellbeing are held constant as their means, while poverty is treated as variable. Table above presents the mean values for overweight, smokers, and wellbeing.
+
+```{r}
+# Predictions with 95% confidence intervals
+predictions <- predict(m.cvd.pov.ow.int.all, predict2, interval = "confidence", level = 0.95)
+predict2$fit <- predictions[, "fit"]
+predict2$lwr <- predictions[, "lwr"]
+predict2$upr <- predictions[, "upr"]
+
+
+# Plot with confidence intervals
+ggplot(predict2, aes(x = Poverty, y = fit)) +
+  geom_line(size = 1, color = "blue") + #line graph for fit result
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2, fill = "blue") + #ribbon graph for lower and upper CI
+  labs(
+    title = "Predicted CVD with 95% Confidence Intervals",
+    x = "Poverty (%)",
+    y = "Predicted CVD (%)",
+    caption = "Figure 1.4 Predicted CVD with 95% confidence"
+  )+
+  ylim(7.5,17.5)
+
+```
+
+Figure 1.4 shows that an increase in the percentage of poverty has a negative impact on CVD, meaning that as the percentage of poverty in the area rises, the prevalence of CVD decreases. However, the model shows a statistically significant interaction between poverty and overweight, meaning that the percentage of overweight individuals in the area affects how the percentage of poverty influences CVD prevalence.This interaction is illustrated in the figure below.
+
+
+```{r}
+# Creating a new tibble with 3 point of overweight, 3 point of poverty, and mean values of smokers and wellbeing
+predict3 <-tibble (overweight=rep(c((quantile(cvdpred$overweight, 0.25)),(median(cvdpred$overweight, na.rm = TRUE)),(quantile(cvdpred$overweight, 0.75))),3),
+                   Poverty=c(rep(quantile(cvdpred$Poverty,0.25),3), rep(quantile(cvdpred$Poverty,0.50),3), rep(quantile(cvdpred$Poverty,0.75),3)),
+                   smokers=c(rep(mean(cvdpred$smokers, na.rm = TRUE),9)),
+                   wellbeing= c(rep(mean(cvdpred$wellbeing, na.rm = TRUE),9))
+                   )
+
+predictions3 <- predict(m.cvd.pov.ow.int.all, predict3, interval = "confidence", level = 0.95)
+predict3$fit <- predictions3[, "fit"]
+predict3$lwr <- predictions3[, "lwr"]
+predict3$upr <- predictions3[, "upr"]
+
+ggplot(predict3, aes(x = Poverty, y = fit)) +
+  geom_line(size = 1, color = "blue") + # line for fit value
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2, fill = "blue") + # ribbon to show the upper and lower CI
+  labs(
+    title = "Predicted CVD with 95% Confidence Intervals in three Overweight(%) points",
+    x = "Poverty (%)",
+    y = "Predicted CVD (%)",
+    caption = "Figure 1.5 Predicted CVD with 95% confidence intervals for 21.6%, 25.6%, 29.5% overweight population"
+  )+
+  facet_grid(.~overweight)
+```
+
+Figure 1.5 shows the effect of the population percentage of poverty on CVD prevalence at 21.6%, 25.6%, and 29.5%, corresponding to the values of quantile 1, the median, and quantile 3 of overweight percentage, while keeping other predictors as the mean. As the percentage of overweight individuals increases, the negative effect of poverty percentage on CVD prevalence becomes weaker.
+
+## Conclusion
+
+The percentage of overweight individuals, smokers, and wellbeing scores in an area are associated with higher prevalence of CVD, meaning that higher percentages of overweight individuals, smokers, and wellbeing scores correspond to an increased occurrence of CVD. However, the percentage of poverty in an area is associated with lower prevalence of CVD. The interaction between overweight and poverty is statistically significant, with areas having a higher percentage of overweight showing a weaker association between poverty and CVD prevalence, as shown in Figure 1.5.
+
+---
+
+# Question 2
+
+## Introduction
+
+Section 2 will evaluate how delivery time impacts customer satisfaction and how socio-economic status (SES) influences this relationship. First, the data will be explored and evaluated, followed by modeling customer satisfaction. Findings suggest that increased delivery time negatively affects customer satisfaction. Additionally, while the impact of delivery time on customer satisfaction does not differ significantly between high and medium SES categories, there is a statistically significant difference in the impact of delivery time between high and low SES categories. 
+
+```{r}
+cust <- read_csv("cust_satisfaction.csv")
+```
+## Data dictionary
+
+Variable | Description
+-------- | -----------
+SES_category | The company's categorisation of store type by local socio-economic-status
+customer.satisfaction | Average customer satisfaction score
+staff.satisfaction | Average staff job satisfaction score
+delivery.time | The average delivery time of large and custom items 
+new_range | Whether the store was carrying a new range of products
+
+## Data exploration and preparation
+
+### Distribution of data 
+
+Before the analysis is carried out, the distribution of the data is evaluated.
+
+```{r}
+cust$SES_category <-factor (cust$SES_category, levels=c("High","Medium","Low"))
+ggplot(data = cust, aes(x=customer.satisfaction))+
+  geom_histogram(bins = 60)+
+  labs(
+    title = "Customer Satisfaction Histogram",
+    x = "Customer satisfaction",
+    y = "Count",
+    caption = "Figure 2.1.a Customer satisfaction histogram"
+  )
+ggplot(data = cust, aes(x=staff.satisfaction))+
+  geom_histogram(bins = 60)+
+  labs(
+    title = "Staff Satisfaction Histogram",
+    x = "Staff satisfaction",
+    y = "Count",
+    caption = "Figure 2.1.b Staff satisfaction histogram"
+  )
+ggplot(data = cust, aes(x=delivery.time))+
+    geom_histogram(bins = 60)+
+  labs(
+    title = "Delivery Time Histogram",
+    x = "Delivery time",
+    y = "Count",
+    caption = "Figure 2.1.c Delivery time histogram"
+  )
+```
+
+Figure 2.1 shows that the distribution of customer satisfaction, staff satisfaction, and delivery time data is approximately normally distributed.
+
+```{r}
+SES_count <- cust %>%
+  count (SES_category)
+SES_count %>% kable(format="pipe")
+```
+Table above shows that there is an even spread on the data with 100 data for each SES_category. 
+
+```{r}
+new_count <- cust %>%
+  count (new_range)
+new_count %>% kable(format = "pipe")
+```
+
+Table above shows that there is a small difference of 16 between stores with new category and without new category.
+
+
+
+## Customer satisfaction modelling
+
+### Modelling by Delivery Time
+
+```{r}
+m.custsat.by.delivtime <- lm (customer.satisfaction~delivery.time, data = cust)
+summary (m.custsat.by.delivtime)
+```
+From the model, Customer satisfaction can be predicted as customer.satisfaction.hat = 8.654 - 0.029 delivery.time.
+
+Interpretation of the coefficient: For each one unit of increase in delivery time, the customer satisfaction rate decreases by 0.029  points, which is significantly different from zero (t(298) = -4.627, p < 0.001).
+
+```{r}
+custsatpred1 <- na.omit(cust) # removing Na to create a tibble for prediction
+  
+custsatpred1$custsathat <- predict(m.custsat.by.delivtime, custsatpred1) # prediction using the cleaned customer dataset
+
+ggplot(custsatpred1, aes(x = delivery.time)) +
+  geom_point(aes(y = customer.satisfaction), color = "grey") +
+  geom_line(aes(y = custsathat), size = 1) +  
+  labs(
+    title = "Predicted Customer Satisfaction",
+    x = "Delivery Time",
+    y = "Customer Satisfaction",
+    color = "SES category",
+    caption = "Figure 2.2 Predicted Customer Satisfaction for each SES category (points representing real data and lines representing predicted customer satisfaction)"
+  )+
+  theme (plot.caption = element_text(size = 6))
+```
+
+Figure 2.2 illustrates the negative impact of delivery time upon customer satisfaction.
+
+
+### Modelling by delivery time with SES category interaction
+
+To evaluate the effect of SES category to the impact of delivery time upon customer satisfaction, modelling with interaction is performed. 
+
+``` {r}
+
+p.deliv <- ggplot(data = cust, aes(x=delivery.time, y = customer.satisfaction))+
+  geom_point(color = "grey")+
+  geom_smooth(color = "black")+
+  labs(
+    title = "Customer Satisfaction vs delivery time",
+    x = "delivery time",
+    y = "customer satisfaction",
+    caption = "Figure 2.3.a Customer satisfaction vs delivery time"
+  )+  
+  theme(
+    plot.title = element_text(size = 10),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 7),
+    plot.caption = element_text(size = 6)
+  )
+  ylim(2,10)
+p.deliv.ses<- ggplot(data = cust, aes(x=delivery.time, y = customer.satisfaction, color = SES_category))+
+  geom_point()+
+  geom_smooth()+
+  labs(
+    title = "Customer Satisfaction vs delivery time by SES category",
+    x = "delivery time",
+    y = "customer satisfaction",
+    caption = "Figure 2.3.b Customer satisfaction vs delivery time by SES category"
+  )+
+  scale_color_manual(values = c("High" = "red", "Medium" = "orange", "Low" = "blue"))+
+  facet_grid(. ~ SES_category, scales = "free", switch = "both") +
+  theme(
+    strip.text = element_blank(),
+    plot.title = element_text(size = 10),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 7),
+    plot.caption = element_text(size = 6)
+        )+
+  ylim(2,10)
+
+grid.arrange(p.deliv, p.deliv.ses, ncol=2, widths=c(1,2))
+```
+
+Figure 2.3 shows the effect of delivery time towards customer satisfaction. Figure 2.3.a shows the impact of delivery time without considering the SES category, while Figure 2.3.b shows the impact of delivery time for each SES category. From the figure, it seems that for every SES category, delivery time has a negative impact on customer satisfaction. However, how each SES category will impact of delivery time upon customer satisfaction will be discussed in further analysis. 
+
+```{r}
+m.custsat.by.delivtime.SES <- lm (customer.satisfaction~delivery.time*SES_category, data = cust)
+summary (m.custsat.by.delivtime.SES)
+```
+From the model, Customer satisfaction can be predicted as customer.satisfaction.hat = 8.654 - 0.034 delivery.time + 0.296 SES category Medium - 2.122 SES category Low + 0.019 delivery time * SES category Medium + 0.0297 delivery time * SES category Low.
+
+Interpretation of the coefficients:
+
+  1.delivery.time: For each one unit of increase in delivery time, the customer satisfaction rate decreases by 0.034  points, which is significantly different from zero (t(294) = -3.669, p < 0.05).
+  
+  2.SES category Medium: For the change of SES category from High to Medium, the customer satisfaction increases by 0.296. However, this change is not significantly different from zero (t(294) = 0.388, p = 0.698).
+  
+  3.SES category Low: For the change of SES category from High to low, the customer satisfaction decreases by 2.122, which is significantly different from zero (t(294) = -2.740, p < 0.05).
+  
+  4.delivery.time*SES category Medium: The change of SES category from High to Medium and for every increase of delivery time, the change in customer satisfaction becomes more positive by 0.019. However, this change is not significantly different from zero (t(294) = 1.505, p = 0.133)
+  
+  5.delivery.time*SES category Low: The change of SES category from High to Low and for every increase of delivery time, the change in customer satisfaction becomes more positive by 0.030. This change is significantly different from zero (t(294) = 2.374, p < 0.05)
+  
+
+To compare between the model that predicts the customer satisfaction just with the delivery time and the model that predicts with the interaction of delivery time and SES category, ANOVA analysis is performed.
+
+```{r}
+anova(m.custsat.by.delivtime, m.custsat.by.delivtime.SES)
+```
+
+A graph is created based on the model's predictions to illustrate how each SES category affects the impact of delivery time on customer satisfaction.
+
+```{r}
+custsatpred <- na.omit(cust) #removing na from cust dataset to prepare it for prediction
+  
+custsatpred$custsathat <- predict(m.custsat.by.delivtime.SES, custsatpred)
+
+ggplot(custsatpred, aes(x = delivery.time, color = SES_category)) +
+  geom_point(aes(y = customer.satisfaction), alpha = 0.7) +
+  geom_line(aes(y = custsathat), size = 1) +  
+  scale_color_manual(values = c("High" = "red", "Medium" = "orange", "Low" = "blue"))+
+  labs(
+    title = "Predicted Customer Satisfaction",
+    x = "Delivery Time",
+    y = "Customer Satisfaction",
+    color = "SES category",
+    caption = "Figure 2.4 Predicted Customer Satisfaction for each SES category (points representing real data and lines representing predicted customer satisfaction)"
+  )+
+  theme (plot.caption = element_text(size = 6))
+```
+
+Figure 2.4 shows that the impact of delivery time on customer satisfaction is negative across all SES categories, with the High and Medium SES categories experiencing a relatively stronger negative effect, while the Low SES category shows a comparatively smaller negative effect on customer satisfaction. 
+
+
+## Conclusion
+The effect of delivery time on customer satisfaction is negative, meaning that longer delivery times lead to lower customer satisfaction. While the effect of delivery time is statistically insignificant for High SES and Medium SES stores, it is statistically different for Low SES stores. Specifically, Low SES stores experience a less negative effect of delivery time compared to High SES stores as shown in Figure 2.4.
